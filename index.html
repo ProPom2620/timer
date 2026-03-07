@@ -655,9 +655,18 @@ function pad(n) { return String(Math.floor(Math.max(0,n))).padStart(2,'0'); }
 
 function setDisplay(ms) {
   const tot = Math.max(0, Math.ceil(ms/1000));
-  txtH.textContent = pad(Math.floor(tot/3600));
-  txtM.textContent = pad(Math.floor((tot%3600)/60));
-  txtS.textContent = pad(tot%60);
+  const h = Math.floor(tot/3600);
+  const m = Math.floor((tot%3600)/60);
+  const s = tot%60;
+  txtH.textContent = pad(h);
+  txtM.textContent = pad(m);
+  txtS.textContent = pad(s);
+  // Tab title: omit hours if zero
+  if (running || paused) {
+    document.title = h > 0
+      ? `${h}:${pad(m)}:${pad(s)}`
+      : `${pad(m)}:${pad(s)}`;
+  }
   if (totalSec > 0) {
     const pct = Math.min(100, (tot/totalSec)*100);
     progFill.style.width = pct + '%';
@@ -684,6 +693,7 @@ function triggerAlarm() {
   displayPanel.className = 'display-panel alarm';
   alarmOverlay.classList.add('active');
   setStatus('done', 'TIME UP — PRESS SPACE OR RESET');
+  document.title = 'TIME UP — TIMER.EXE';
   setMainBtn('alarm');
   setCancelBtn(true);   // cancel stays active so user can dismiss alarm
   setInputsDisabled(true);
@@ -753,6 +763,7 @@ function resetAll() {
   displayPanel.className = 'display-panel';
   alarmOverlay.classList.remove('active');
   setStatus('');
+  document.title = 'TIMER.EXE';
   setMainBtn('idle');
   setCancelBtn(false);
   setInputsDisabled(false);
