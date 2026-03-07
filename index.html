@@ -628,16 +628,31 @@ function startAlarmLoop() {
   initAudio();
   activeNodes = [];
   alarmNextTime = audioCtx.currentTime + 0.05;
-  // Pre-schedule 3 s ahead
-  while (alarmNextTime < audioCtx.currentTime + 3)
+  // Pre-schedule 6 s ahead so audio survives a tab-hidden suspension gap
+  while (alarmNextTime < audioCtx.currentTime + 6)
     alarmNextTime += scheduleMelody(alarmNextTime) + 0.55;
 
   alarmInt = setInterval(() => {
     if (!alarm) { clearInterval(alarmInt); alarmInt = null; return; }
-    while (alarmNextTime < audioCtx.currentTime + 3)
+    // Resume in case browser suspended the context while tab was hidden
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    while (alarmNextTime < audioCtx.currentTime + 6)
       alarmNextTime += scheduleMelody(alarmNextTime) + 0.55;
   }, 100);
 }
+
+// When user returns to this tab, immediately resume + refill the buffer
+document.addEventListener('visibilitychange', () => {
+  if (!alarm || document.hidden) return;
+  if (audioCtx && audioCtx.state === 'suspended') {
+    audioCtx.resume().then(() => {
+      // Reschedule from now in case the buffer ran dry while hidden
+      alarmNextTime = audioCtx.currentTime + 0.05;
+      while (alarmNextTime < audioCtx.currentTime + 6)
+        alarmNextTime += scheduleMelody(alarmNextTime) + 0.55;
+    });
+  }
+});
 
 function stopAlarmNow() {
   if (alarmInt) { clearInterval(alarmInt); alarmInt = null; }
