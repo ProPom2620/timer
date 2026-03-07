@@ -628,30 +628,24 @@ function startAlarmLoop() {
   initAudio();
   activeNodes = [];
   alarmNextTime = audioCtx.currentTime + 0.05;
-  // Pre-schedule 6 s ahead so audio survives a tab-hidden suspension gap
-  while (alarmNextTime < audioCtx.currentTime + 6)
+  // Schedule 3 full minutes of melody upfront — Web Audio nodes already
+  // queued in the hardware timeline play even when the tab is hidden.
+  // This avoids relying on setInterval (which gets throttled off-page).
+  while (alarmNextTime < audioCtx.currentTime + 180)
     alarmNextTime += scheduleMelody(alarmNextTime) + 0.55;
 
+  // Minimal watchdog only to handle the edge case where user stays 3+ min
   alarmInt = setInterval(() => {
     if (!alarm) { clearInterval(alarmInt); alarmInt = null; return; }
-    // Resume in case browser suspended the context while tab was hidden
     if (audioCtx.state === 'suspended') audioCtx.resume();
-    while (alarmNextTime < audioCtx.currentTime + 6)
+    while (alarmNextTime < audioCtx.currentTime + 180)
       alarmNextTime += scheduleMelody(alarmNextTime) + 0.55;
-  }, 100);
+  }, 10000);
 }
 
-// When user returns to this tab, immediately resume + refill the buffer
 document.addEventListener('visibilitychange', () => {
   if (!alarm || document.hidden) return;
-  if (audioCtx && audioCtx.state === 'suspended') {
-    audioCtx.resume().then(() => {
-      // Reschedule from now in case the buffer ran dry while hidden
-      alarmNextTime = audioCtx.currentTime + 0.05;
-      while (alarmNextTime < audioCtx.currentTime + 6)
-        alarmNextTime += scheduleMelody(alarmNextTime) + 0.55;
-    });
-  }
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
 });
 
 function stopAlarmNow() {
@@ -694,13 +688,19 @@ function setStatus(state, label) {
   statusTxt.textContent = label || {running:'RUNNING',paused:'PAUSED',done:'DONE','':'IDLE — CLICK TO SET TIME'}[state] || 'IDLE';
 }
 
-// ── Tick ──────────────────────────────────────────────────────────────────
-function tick() {
-  if (!running || paused) return;
-  const left = endTime - Date.now();
-  if (left <= 0) { setDisplay(0); triggerAlarm(); return; }
-  setDisplay(left);
-  raf = requestAnimationFrame(tick);
+// ── Tick — uses setInterval so it keeps running in background tabs ────────
+function startTick() {
+  if (raf) clearInterval(raf);
+  raf = setInterval(() => {
+    if (!running || paused) return;
+    const left = endTime - Date.now();
+    if (left <= 0) { setDisplay(0); clearInterval(raf); raf = null; triggerAlarm(); return; }
+    setDisplay(left);
+  }, 250);
+}
+
+function stopTick() {
+  if (raf) { clearInterval(raf); raf = null; }
 }
 
 function triggerAlarm() {
@@ -740,7 +740,7 @@ function startTimer() {
     setInputsDisabled(true);
     setDisplay(secs*1000); progFill.style.width = '100%';
     showShare(buildURL(endTime, null));
-    raf = requestAnimationFrame(tick);
+    startTick();
   }
 }
 
@@ -749,7 +749,7 @@ function togglePause() {
   initAudio();
   if (!paused) {
     pauseLeft = Math.max(0, endTime - Date.now());
-    paused = true; cancelAnimationFrame(raf);
+    paused = true; stopTick();
     displayPanel.className = 'display-panel paused';
     setStatus('paused');
     setMainBtn('paused');
@@ -760,14 +760,14 @@ function togglePause() {
     setStatus('running');
     setMainBtn('running');
     showShare(buildURL(endTime, null));
-    raf = requestAnimationFrame(tick);
+    startTick();
   }
 }
 
 function cancelTimer() { resetAll(); }
 
 function resetAll() {
-  cancelAnimationFrame(raf);
+  stopTick();
   stopAlarmNow();           // ← immediate silence
   running = false; paused = false;
   endTime = null; pauseLeft = null; totalSec = 0;
@@ -816,7 +816,7 @@ function copyLink() {
     setCancelBtn(true);
     setInputsDisabled(true);
     showShare(buildURL(endTime,null));
-    raf = requestAnimationFrame(tick);
+    startTick();
   } else if (state.p) {
     totalSec = Math.ceil(state.p/1000); pauseLeft = state.p; running = true; paused = true;
     txtH.textContent = pad(Math.floor(totalSec/3600));
